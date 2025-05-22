@@ -17,7 +17,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Initialize FastMCP server
-mcp = FastMCP("Web Search", port=8001, stateless_http=True)
+mcp = FastMCP("Web Search", port=int(os.environ.get("PORT", 8001)), host='0.0.0.0', stateless_http=True)
 
 def get_tavily_api_key(request: Request):
     headers = request.headers
