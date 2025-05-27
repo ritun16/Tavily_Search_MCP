@@ -12,5 +12,4 @@ npx @modelcontextprotocol/inspector uv --directory . run mcp_server_without_head
   "exclude_domains": null,
   "days": 365
 }
-
 ```

@@ -22,12 +22,55 @@ from tavily import (
     UsageLimitExceededError,
 )
 
+from config import ENV, TRUSTED_ORIGINS
+
+from dotenv import load_dotenv
+
+load_dotenv(".env.dev")
+
+AUTHORIZATION_SECRET_KEY = os.getenv("AUTHORIZATION_SECRET_KEY")
+
+
+class MCPSecurityValidator:
+    def validate_origin(self, request: Request) -> bool:
+        origin = request.headers.get("Origin")
+        if origin is None or origin not in TRUSTED_ORIGINS:
+            raise ValueError("Invalid or missing Origin header")
+        
+        return True
+    
+    def validate_bind(self) -> str:
+        if ENV == "PROD":
+            return "0.0.0.0"
+        else:
+            return "127.0.0.1"
+        
+    def authorize_bearer_token(self, request: Request) -> bool:
+        authorization_header = request.headers.get("Authorization")
+        if authorization_header is None or not authorization_header.startswith("Bearer "):
+            raise ValueError("Invalid or missing Authorization header")
+        
+        if authorization_header.split(" ")[1] != AUTHORIZATION_SECRET_KEY:
+            raise ValueError("Invalid Authorization Secret Key")
+        
+        return True
+    
+    def get_tavily_api_key(self, request: Request) -> str:
+        tavily_api_key_header = request.headers.get("Tavily-API-Key")
+        if tavily_api_key_header is None:
+            raise ValueError("Invalid or missing Tavily-API-Key header")
+        
+        return tavily_api_key_header.strip()
+    
+
+mcp_security_validator = MCPSecurityValidator()
+
 
 # Define the MCP server
 web_search_mcp_server = FastMCP(
     "Web Search",
     port=int(os.environ.get("PORT", 8001)),
-    host="0.0.0.0",
+    host=mcp_security_validator.validate_bind(),
     stateless_http=True,
 )
 
@@ -67,18 +110,6 @@ class WebSearch(BaseModel):
                     return [domain.strip() for domain in v.split(",") if domain.strip()]
                 return [v]  # Single domain
         return []
-
-
-# Utility function for getting the token
-def get_tavily_api_key(request: Request):
-    headers = request.headers
-    # Check if 'Authorization' header is present
-    authorization_header = headers.get('Tavily-API-Key')
-    
-    if authorization_header:
-        return authorization_header.strip()
-    else:
-        raise ValueError("Authorization header missing")
     
 
 # General Search
@@ -104,8 +135,12 @@ async def general_search(web_search_args: WebSearch) -> str:
     # Process the request from the client
     request: Request = get_http_request()
 
+    # Validate the request
+    mcp_security_validator.validate_origin(request)
+    mcp_security_validator.authorize_bearer_token(request)
+
     # Fetch the Tavily API Key from the header
-    tavily_api_key = get_tavily_api_key(request)
+    tavily_api_key = mcp_security_validator.get_tavily_api_key(request)
 
     try:
         tavily_client = AsyncTavilyClient(api_key=tavily_api_key)
@@ -161,8 +196,12 @@ async def news_search(web_search_args: WebSearch) -> str:
     # Process the request from the client
     request: Request = get_http_request()
 
+    # Validate the request
+    mcp_security_validator.validate_origin(request)
+    mcp_security_validator.authorize_bearer_token(request)
+
     # Fetch the Tavily API Key from the header
-    tavily_api_key = get_tavily_api_key(request)
+    tavily_api_key = mcp_security_validator.get_tavily_api_key(request)
 
     try:
         tavily_client = AsyncTavilyClient(api_key=tavily_api_key)
