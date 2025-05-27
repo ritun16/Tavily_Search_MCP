@@ -13,3 +13,7 @@ npx @modelcontextprotocol/inspector uv --directory . run mcp_server_without_head
   "days": 365
 }
 ```
+
+```bash
+uv pip compile pyproject.toml > requirements.txt
+```

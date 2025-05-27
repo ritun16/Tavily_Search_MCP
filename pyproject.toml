@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "fastmcp>=2.4.0",
+    "flet>=0.28.3",
     "mcp[cli]>=1.9.0",
     "openai-agents>=0.0.16",
     "tavily-python>=0.7.2",
