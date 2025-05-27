@@ -22,6 +22,12 @@ from tavily import (
     UsageLimitExceededError,
 )
 
+from dotenv import load_dotenv
+
+load_dotenv(".env.dev")
+
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
+
 
 # Define the MCP server
 web_search_mcp_server = FastMCP(
@@ -32,6 +38,7 @@ web_search_mcp_server = FastMCP(
 )
 
 # Define the search schema
+
 
 class WebSearch(BaseModel):
     """Parameters for general web search."""
@@ -67,18 +74,6 @@ class WebSearch(BaseModel):
                     return [domain.strip() for domain in v.split(",") if domain.strip()]
                 return [v]  # Single domain
         return []
-
-
-# Utility function for getting the token
-def get_tavily_api_key(request: Request):
-    headers = request.headers
-    # Check if 'Authorization' header is present
-    authorization_header = headers.get('Tavily-API-Key')
-    
-    if authorization_header:
-        return authorization_header.strip()
-    else:
-        raise ValueError("Authorization header missing")
     
 
 # General Search
@@ -101,14 +96,8 @@ async def general_search(web_search_args: WebSearch) -> str:
     
     print(f"General Search Started with Args: {web_search_args.model_dump_json()}")
     
-    # Process the request from the client
-    request: Request = get_http_request()
-
-    # Fetch the Tavily API Key from the header
-    tavily_api_key = get_tavily_api_key(request)
-
     try:
-        tavily_client = AsyncTavilyClient(api_key=tavily_api_key)
+        tavily_client = AsyncTavilyClient(api_key=TAVILY_API_KEY)
         search_result = await tavily_client.search(
                                 query=web_search_args.query,
                                 topic="general",
@@ -158,14 +147,8 @@ async def news_search(web_search_args: WebSearch) -> str:
     
     print(f"News Search Started with Args: {web_search_args.model_dump_json()}")
     
-    # Process the request from the client
-    request: Request = get_http_request()
-
-    # Fetch the Tavily API Key from the header
-    tavily_api_key = get_tavily_api_key(request)
-
     try:
-        tavily_client = AsyncTavilyClient(api_key=tavily_api_key)
+        tavily_client = AsyncTavilyClient(api_key=TAVILY_API_KEY)
         search_result = await tavily_client.search(
                                 query=web_search_args.query,
                                 topic="news",
