@@ -28,7 +28,7 @@ from dotenv import load_dotenv
 
 load_dotenv(".env.dev")
 
-AUTHORIZATION_SECRET_KEY = os.getenv("AUTHORIZATION_SECRET_KEY")
+AUTHORIZATION_SECRET_KEY = os.getenv("AUTHORIZATION_SECRET_KEY", "mcp-default-secret-key")
 
 
 class MCPSecurityValidator:
