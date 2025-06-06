@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "agno>=1.5.6",
     "fastmcp>=2.4.0",
     "flet>=0.28.3",
     "mcp[cli]>=1.9.0",
