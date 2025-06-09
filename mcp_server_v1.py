@@ -1,23 +1,14 @@
+import asyncio
 import os
 import json
-import threading
-from datetime import datetime
-from typing import Annotated, Literal, List
 
-import uvicorn
-from fastapi import FastAPI, HTTPException, Header, Depends, Body
-from fastapi.responses import JSONResponse
-from starlette.requests import Request
-
+from typing import Annotated, Literal
 from pydantic import BaseModel, Field, field_validator
 
-from cryptography.hazmat.primitives import serialization
-from jwcrypto import jwk
-
 from fastmcp import FastMCP
-from fastmcp.server.auth import BearerAuthProvider
 from fastmcp.server.dependencies import get_http_request
 from fastmcp.exceptions import FastMCPError
+from starlette.requests import Request
 
 from mcp.types import (
     ErrorData,
@@ -33,69 +24,58 @@ from tavily import (
 
 from config import ENV, TRUSTED_ORIGINS
 
+from dotenv import load_dotenv
 
-# ———— 1) A custom class to validate MCP client requests ————
+load_dotenv(".env.dev")
+
+AUTHORIZATION_SECRET_KEY = os.getenv(
+    "AUTHORIZATION_SECRET_KEY", "mcp-default-secret-key"
+)
+
 
 class MCPSecurityValidator:
-    """
-    Utility class for validating security aspects of incoming MCP client requests.
-    Handles origin validation, server bind address selection, and Tavily API key extraction.
-    """
-
     def validate_origin(self, request: Request) -> bool:
-        """
-        Validates that the request's Origin header is present and is in the list of trusted origins.
-
-        Args:
-            request (Request): The incoming HTTP request.
-
-        Returns:
-            bool: True if the origin is valid.
-
-        Raises:
-            ValueError: If the Origin header is missing or not trusted.
-        """
         origin = request.headers.get("Origin")
         if origin is None or origin not in TRUSTED_ORIGINS:
             raise ValueError("Invalid or missing Origin header")
+
         return True
 
     def validate_bind(self) -> str:
-        """
-        Determines the server bind address based on the environment.
-
-        Returns:
-            str: The IP address to bind the server to.
-                 "0.0.0.0" for deployment, "127.0.0.1" for local development.
-        """
         if ENV == "PROD":
             return "0.0.0.0"
         else:
             return "127.0.0.1"
 
+    def authorize_bearer_token(self, request: Request) -> bool:
+        authorization_header = request.headers.get("Authorization")
+        if authorization_header is None or not authorization_header.startswith(
+            "Bearer "
+        ):
+            raise ValueError("Invalid or missing Authorization header")
+
+        if authorization_header.split(" ")[1] != AUTHORIZATION_SECRET_KEY:
+            raise ValueError("Invalid Authorization Secret Key")
+
+        return True
+
     def get_tavily_api_key(self, request: Request) -> str:
-        """
-        Extracts and returns the Tavily API key from the request headers.
-
-        Args:
-            request (Request): The incoming HTTP request.
-
-        Returns:
-            str: The Tavily API key.
-
-        Raises:
-            ValueError: If the Tavily-API-Key header is missing.
-        """
         tavily_api_key_header = request.headers.get("Tavily-API-Key")
         if tavily_api_key_header is None:
             raise ValueError("Invalid or missing Tavily-API-Key header")
+
         return tavily_api_key_header.strip()
 
-# A singleton instance of the security validator
+
 mcp_security_validator = MCPSecurityValidator()
 
 
-# ———— 2) A PyDantic model for the MCP server tools ————
+# Define the MCP server
+web_search_mcp_server = FastMCP("Web Search", stateless_http=True)
+
+# Define the search schema
+
+
 class WebSearch(BaseModel):
     """Parameters for general web search."""
 
@@ -160,101 +140,8 @@ class WebSearch(BaseModel):
         return []
 
 
-# ———— 3) A thread-safe in-memory registry of client public PEMs ————
-
-class PublicKeyRegistry:
-    """
-    Thread-safe in-memory registry for storing client public PEM keys and their associated Key IDs (kid).
-    This registry is used to manage the set of public keys that are allowed to authenticate with the server.
-    """
-
-    def __init__(self):
-        # Lock to ensure thread-safe access to the registry
-        self._lock = threading.Lock()
-        # List to store dictionaries of the form {"pem": <public_key_pem>, "kid": <key_id>}
-        self._pems: List[dict] = []
-
-    def add_pem(self, pem: str, kid: str):
-        """
-        Add a new PEM-encoded public key and its key ID to the registry.
-        Ensures that duplicate (pem, kid) pairs are not added.
-        
-        Args:
-            pem (str): The PEM-encoded public key.
-            kid (str): The key ID associated with the public key.
-        """
-        with self._lock:
-            present = False
-            for pem_dict in self._pems:
-                if pem_dict["pem"] == pem and pem_dict["kid"] == kid:
-                    present = True  # Duplicate found
-            if not present:
-                self._pems.append({"pem": pem, "kid": kid})
-
-    def as_jwks(self):
-        """
-        Returns the registry as a JWKS (JSON Web Key Set) dictionary.
-        Each registered PEM is converted to a JWK and included in the set.
-        
-        Returns:
-            dict: A dictionary with a "keys" field containing the list of JWKs.
-        """
-        keys = []
-        for pem_dict in self._pems:
-            # Load the public key from PEM
-            key_obj = serialization.load_pem_public_key(pem_dict["pem"].encode())
-            # Convert the public key to a JWK using jwcrypto
-            jwk_key = jwk.JWK.from_pyca(key_obj)
-            jwk_key_json = json.loads(jwk_key.export_public())
-            # Attach the correct key ID (kid)
-            jwk_key_json["kid"] = pem_dict["kid"]
-            keys.append(jwk_key_json)
-        return {"keys": keys}
-
-# A singleton instance of the public key registry
-registry = PublicKeyRegistry()
-
-# ———— 4) Wire up FastMCP with that JWKS endpoint ————
-MCP_SERVER_URL = f"http://{mcp_security_validator.validate_bind()}:{os.environ.get('PORT', 8001)}"
-JWKS_URL = f"{MCP_SERVER_URL}/.well-known/jwks.json"
-
-auth = BearerAuthProvider(
-    jwks_uri=JWKS_URL,
-)
-
-# ———— 5) Declare MCP server with Authentication ————
-mcp = FastMCP(name="Multi‐client MCP Server", auth=auth)
-
-# ———— 6) FastAPI app ————
-mcp_app = mcp.http_app(path="/mcp")
-app = FastAPI(lifespan=mcp_app.lifespan)
-
-
-# ———— 7) Register client endpoint ————
-@app.post("/register-client")
-async def register_client(public_key_pem: str = Body(...), kid: str = Body(...)):
-    """
-    Register client endpoint: supply a PEM‐encoded public key, get it registered.
-    """
-    try:
-        # validate it actually parses
-        serialization.load_pem_public_key(public_key_pem.encode())
-    except Exception:
-        raise HTTPException(400, "Invalid PEM")
-
-    registry.add_pem(public_key_pem, kid)
-    return {"status": "ok", "registered_keys": len(registry._pems)}
-
-# ———— 8) JWKS endpoint ————
-@app.get("/.well-known/jwks.json")
-async def get_jwks():
-    """
-    Exposes the JWKS set for all registered client keys.
-    """
-    return JSONResponse(registry.as_jwks())
-
-# ———— 9) MCP server tools ————
-@mcp.tool
+# General Search
+@web_search_mcp_server.tool()
 async def general_search(web_search_args: WebSearch) -> str:
     """
     Performs a general web search using the Tavily API and returns results.
@@ -278,6 +165,7 @@ async def general_search(web_search_args: WebSearch) -> str:
 
     # Validate the request
     mcp_security_validator.validate_origin(request)
+    mcp_security_validator.authorize_bearer_token(request)
 
     # Fetch the Tavily API Key from the header
     tavily_api_key = mcp_security_validator.get_tavily_api_key(request)
@@ -315,8 +203,8 @@ async def general_search(web_search_args: WebSearch) -> str:
     return formatted_results
 
 
-# ———— 10) MCP server tools ————
-@mcp.tool()
+# News Search
+@web_search_mcp_server.tool()
 async def news_search(web_search_args: WebSearch) -> str:
     """
     Performs a news search using the Tavily API and returns results.
@@ -340,6 +228,7 @@ async def news_search(web_search_args: WebSearch) -> str:
 
     # Validate the request
     mcp_security_validator.validate_origin(request)
+    mcp_security_validator.authorize_bearer_token(request)
 
     # Fetch the Tavily API Key from the header
     tavily_api_key = mcp_security_validator.get_tavily_api_key(request)
@@ -378,8 +267,13 @@ async def news_search(web_search_args: WebSearch) -> str:
     return formatted_results
 
 
-# ———— 11) Mount the MCP server ————
-app.mount("/mcp-server", mcp_app)
+async def main():
+    await web_search_mcp_server.run_async(
+        transport="streamable-http",
+        port=int(os.environ.get("PORT", 8001)),
+        host=mcp_security_validator.validate_bind(),
+    )
+
 
 if __name__ == "__main__":
-    uvicorn.run(app, host=f"{mcp_security_validator.validate_bind()}", port=int(os.environ.get("PORT", 8001)))
+    asyncio.run(main())

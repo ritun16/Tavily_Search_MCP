@@ -12,3 +12,6 @@ wheels/
 
 # Files
 mcp_client.py
+mcp_client_auth.py
+registry_utility.py
+mcp_client_v1.py
