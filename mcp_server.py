@@ -3,6 +3,7 @@ import json
 import threading
 from datetime import datetime
 from typing import Annotated, Literal, List
+from colorama import Fore, Style
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Header, Depends, Body
@@ -128,7 +129,7 @@ class WebSearch(BaseModel):
         int | None,
         Field(
             default=7,
-            description="Number of days back to search (default is 3)",
+            description="Number of days back to search (default is 7)",
             gt=0,
             le=365,
         ),
@@ -185,11 +186,15 @@ class PublicKeyRegistry:
         """
         with self._lock:
             present = False
+
             for pem_dict in self._pems:
-                if pem_dict["pem"] == pem and pem_dict["kid"] == kid:
+                if pem_dict["pem"] == pem or pem_dict["kid"] == kid:
                     present = True  # Duplicate found
             if not present:
                 self._pems.append({"pem": pem, "kid": kid})
+                return True, False # True, False means (Key added successfully and the key or kid was not present)
+            else:
+                return True, True # True, True means (Key added successfully and the key or kid was present)
 
     def as_jwks(self):
         """
@@ -242,8 +247,14 @@ async def register_client(public_key_pem: str = Body(...), kid: str = Body(...))
     except Exception:
         raise HTTPException(400, "Invalid PEM")
 
-    registry.add_pem(public_key_pem, kid)
-    return {"status": "ok", "registered_keys": len(registry._pems)}
+    is_key_added, is_key_present = registry.add_pem(public_key_pem, kid)
+    if is_key_added:
+        if is_key_present:
+            return {"status": "error", "message": "Key or KID already registered. Try again with different KID."}
+        else:
+            return {"status": "ok", "registered_keys": len(registry._pems), "message": "Key registered successfully"}
+    else:
+        raise HTTPException(400, "Failed to add key")
 
 # ———— 8) JWKS endpoint ————
 @app.get("/.well-known/jwks.json")
@@ -288,7 +299,7 @@ async def general_search(web_search_args: WebSearch) -> str:
             query=web_search_args.query,
             topic="general",
             search_depth=web_search_args.search_depth,
-            include_raw_content=False,
+            include_raw_content=True,
             include_answer=True,
             max_results=web_search_args.max_results,
             include_domains=web_search_args.include_domains,
@@ -300,18 +311,24 @@ async def general_search(web_search_args: WebSearch) -> str:
         result_index = 1
         for result in search_result["results"]:
             search_url = result["url"]
-            search_raw_content = result["content"]
+            search_raw_content = result["raw_content"]
             if search_url and search_raw_content:
                 formatted_results += (
-                    f"----------------- Result: {result_index} -----------------\n"
+                    f"{Fore.GREEN}----------------- Result: {result_index} -----------------{Style.RESET_ALL}\n"
                 )
-                formatted_results += f"Search URL: {search_url}\nSearch Content: {search_raw_content}\n\n"
+                formatted_results += (
+                    f"{Fore.BLUE}Search URL: {search_url}{Style.RESET_ALL}\n"
+                )
+                formatted_results += (
+                    f"{Fore.YELLOW}Search Content: {search_raw_content}{Style.RESET_ALL}\n\n"
+                )
                 result_index += 1
     except (InvalidAPIKeyError, UsageLimitExceededError) as erroe:
         raise FastMCPError(ErrorData(code=INTERNAL_ERROR, message=str(erroe)))
     except ValueError as error:
         raise FastMCPError(ErrorData(code=INVALID_PARAMS, message=str(error)))
 
+    print(formatted_results)
     return formatted_results
 
 
@@ -350,7 +367,7 @@ async def news_search(web_search_args: WebSearch) -> str:
             query=web_search_args.query,
             topic="news",
             search_depth=web_search_args.search_depth,
-            include_raw_content=False,
+            include_raw_content=True,
             include_answer=True,
             max_results=web_search_args.max_results,
             include_domains=web_search_args.include_domains,
@@ -363,18 +380,24 @@ async def news_search(web_search_args: WebSearch) -> str:
         result_index = 1
         for result in search_result["results"]:
             search_url = result["url"]
-            search_raw_content = result["content"]
+            search_raw_content = result["raw_content"]
             if search_url and search_raw_content:
                 formatted_results += (
-                    f"----------------- Result: {result_index} -----------------\n"
+                    f"{Fore.GREEN}----------------- Result: {result_index} -----------------{Style.RESET_ALL}\n"
                 )
-                formatted_results += f"Search URL: {search_url}\nSearch Content: {search_raw_content}\n\n"
+                formatted_results += (
+                    f"{Fore.BLUE}Search URL: {search_url}{Style.RESET_ALL}\n"
+                )
+                formatted_results += (
+                    f"{Fore.YELLOW}Search Content: {search_raw_content}{Style.RESET_ALL}\n\n"
+                )
                 result_index += 1
     except (InvalidAPIKeyError, UsageLimitExceededError) as erroe:
         raise FastMCPError(ErrorData(code=INTERNAL_ERROR, message=str(erroe)))
     except ValueError as error:
         raise FastMCPError(ErrorData(code=INVALID_PARAMS, message=str(error)))
 
+    print(formatted_results)
     return formatted_results
 
 

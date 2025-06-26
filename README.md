@@ -26,3 +26,10 @@ uv pip compile pyproject.toml > requirements.txt
 # sample_query = "Did South African president Cyril Ramaphosa visit USA to meet donald trump in recent past?"
 # sample_query = "What was the reason for recent stampede at bangalore?"
 ```
+
+### Register Client
+```bash
+uv run register_client.py --server-url http://0.0.0.0:8001 --kid demo-kid-1
+
+uv run register_client.py --server-url https://tavily-search-mcp.onrender.com --kid demo-kid-1
+```

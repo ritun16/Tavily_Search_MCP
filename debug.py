@@ -15,16 +15,34 @@
 #                                          show_full_reasoning=True)
     
 
+# import asyncio
+# import os
+# from tavily import (
+#     AsyncTavilyClient,
+#     InvalidAPIKeyError,
+#     UsageLimitExceededError,
+# )
+# from dotenv import load_dotenv
 
+# load_dotenv(".env.dev")
 
-from fastmcp.server.auth.providers.bearer import RSAKeyPair
+# tavily_api_key = os.getenv("TAVILY_API_KEY")
+# # {"query":"ITR 2 changes India 2025","max_results":3,"search_depth":"basic","include_domains":null,"exclude_domains":null,"days":7}
+# async def main():
+#     tavily_client = AsyncTavilyClient(api_key=tavily_api_key)
 
-# Generate a fresh key pair (for dev/testing only!)
-key_pair = RSAKeyPair.generate()
+#     search_result = await tavily_client.search(
+#                 query="ITR 2 changes India 2025",
+#                 topic="general",
+#                 search_depth="basic",
+#                 include_raw_content=True,
+#                 include_answer=False,
+#                 max_results=1,
+#                 include_domains=None,
+#                 exclude_domains=None,
+#             )
+#     print(search_result["results"][0]['content'])
 
-# Extract the PEM-encoded public and private keys
-private_pem = key_pair.private_key
-public_pem = key_pair.public_key
+# if __name__ == "__main__":
+#     asyncio.run(main())
 
-print("PUBLIC KEY:\n", public_pem)
-print("PRIVATE KEY:\n", private_pem)

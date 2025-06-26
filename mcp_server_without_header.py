@@ -180,7 +180,7 @@ async def news_search(web_search_args: WebSearch) -> str:
 
 
 async def main():
-    await web_search_mcp_server.run_async(transport="streamable-http")
+    await web_search_mcp_server.run_async(transport="sse")
 
 if __name__ == "__main__":
     asyncio.run(main())
